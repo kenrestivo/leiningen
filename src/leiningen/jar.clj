@@ -2,6 +2,7 @@
   "Package up all the project's files into a jar file."
   (:require [leiningen.pom :as pom]
             [leiningen.core.classpath :as classpath]
+            [leiningen.core.project :as project]
             [leiningen.core.eval :as eval]
             [leiningen.core.main :as main]
             [clojure.string :as string]
@@ -80,16 +81,20 @@
 ;;         :bytes (.getBytes (read-bin :windows))}])))
 
 (def ^:private default-manifest
-  {"Created-By" (str "Leiningen " (System/getenv "LEIN_VERSION"))
+  {"Created-By" (str "Leiningen " (main/leiningen-version))
    "Built-By" (System/getProperty "user.name")
    "Build-Jdk" (System/getProperty "java.version")})
+
+(defn- manifest-entry [project manifest [k v]]
+  (cond (symbol? v) (manifest-entry project manifest [k (resolve v)])
+        (fn? v) (manifest-entry project manifest [k (v project)])
+        :else (str manifest "\n" (name k) ": " v)))
 
 (defn ^:internal make-manifest [project]
   (Manifest.
    (ByteArrayInputStream.
     (.getBytes
-     (reduce (fn [manifest [k v]]
-               (str manifest "\n" k ": " v))
+     (reduce (partial manifest-entry project)
              "Manifest-Version: 1.0"
              (merge default-manifest (:manifest project)
                     ;; (when (:shell-wrapper project)
@@ -160,6 +165,9 @@
             :path (format "META-INF/maven/%s/%s/pom.properties"
                           (:group project) (:name project))
             :bytes (.getBytes (pom/make-pom-properties project))}
+           {:type :bytes :path (format "META-INF/leiningen/%s/%s/project.clj"
+                                       (:group project) (:name project))
+            :bytes (.getBytes (slurp (str (:root project) "/project.clj")))}
            {:type :bytes :path "project.clj"
             :bytes (.getBytes (slurp (str (:root project) "/project.clj")))}]
           [{:type :path :path (:compile-path project)}
@@ -187,8 +195,9 @@ Create a $PROJECT-$VERSION.jar file containing project's source files as well
 as .class files if applicable. If project.clj contains a :main key, the -main
 function in that namespace will be used as the main-class for executable jar."
   [project]
-  (eval/prep (:without-profiles (meta project) project))
-  (let [jar-file (get-jar-filename project)]
-    (write-jar project jar-file (filespecs project []))
-    (main/info "Created" (str jar-file))
-    jar-file))
+  (let [project (project/unmerge-profiles project [:default])]
+    (eval/prep project)
+    (let [jar-file (get-jar-filename project)]
+      (write-jar project jar-file (filespecs project []))
+      (main/info "Created" (str jar-file))
+      jar-file)))

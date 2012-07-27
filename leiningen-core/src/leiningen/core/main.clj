@@ -5,13 +5,26 @@
             [clojure.java.io :as io]
             [clojure.string :as string]))
 
-(def aliases (atom {"--help" "help", "-h" "help", "-?" "help", "-v" "version"
-                    "--version" "version", "überjar" "uberjar"
-                    "cp" "classpath" "halp" "help"
-                    "with-profiles" "with-profile"
-                    "readme" ["help" "readme"]
-                    "tutorial" ["help" "tutorial"]
-                    "sample" ["help" "sample"]}))
+(def aliases {"-h" "help", "-help" "help", "--help" "help", "-?" "help",
+              "-v" "version", "-version" "version", "--version" "version",
+              "überjar" "uberjar",
+              "-o" ["with-profile" "offline,dev,user,default"]
+              "-U" ["with-profile" "update,dev,user,default"]
+              "cp" "classpath" "halp" "help"
+              "with-profiles" "with-profile"
+              "readme" ["help" "readme"]
+              "tutorial" ["help" "tutorial"]
+              "sample" ["help" "sample"]})
+
+(defn lookup-alias [task-name project]
+  (or (aliases task-name)
+      (get (:aliases project) task-name)
+      task-name "help"))
+
+(defn task-args [args project]
+  (if (= "help" (aliases (second args)))
+    ["help" [(first args)]]
+    [(lookup-alias (first args) project) (rest args)]))
 
 (def ^:dynamic *debug* (System/getenv "DEBUG"))
 
@@ -29,11 +42,11 @@
 (defn exit
   "Exit the process. Rebind *exit-process?* in order to suppress actual process
   exits for tools which may want to continue operating."
-  ([code]
+  ([exit-code]
      (if *exit-process?*
        (do (shutdown-agents)
-           (System/exit code))
-       (throw (Exception. (str "Suppressed exit: " code)))))
+           (System/exit exit-code))
+       (throw (ex-info "Suppressed exit" {:exit-code exit-code}))))
   ([] (exit 0)))
 
 (defn abort
@@ -87,6 +100,9 @@
              "\nExpected" (rest (:arglists (meta task)))))
     (apply task project args)))
 
+(defn leiningen-version []
+  (System/getenv "LEIN_VERSION"))
+
 (defn ^:internal version-satisfies? [v1 v2]
   (let [v1 (map #(Integer. %) (re-seq #"\d+" (first (string/split v1 #"-" 2))))
         v2 (map #(Integer. %) (re-seq #"\d+" (first (string/split v2 #"-" 2))))]
@@ -105,45 +121,52 @@ or by executing \"lein upgrade\". ")
 
 (defn- verify-min-version
   [{:keys [min-lein-version]}]
-  (when-not (version-satisfies? (System/getenv "LEIN_VERSION") min-lein-version)
+  (when-not (version-satisfies? (leiningen-version) min-lein-version)
     (info (format min-version-warning
-                  min-lein-version (System/getenv "LEIN_VERSION")))))
+                  min-lein-version (leiningen-version)))))
 
-(defn- conj-to-last [coll x]
-  (update-in coll [(dec (count coll))] conj x))
+(defn- warn-chaining [task-name args]
+  (when (and (some #(.endsWith (str %) ",") (cons task-name args))
+             (not-any? #(= % "do") (cons task-name args)))
+    (println "WARNING: task chaining has been moved to the \"do\" task. For example,")
+    (println "\"lein javac, test\" should now be called as \"lein do javac, test\" ")
+    (println "See `lein help do` for details.")))
 
-(defn ^:internal group-args
-  ([args] (reduce group-args [[]] args))
-  ([groups arg]
-     (if (.endsWith arg ",")
-       (-> groups
-           (conj-to-last (subs arg 0 (dec (count arg))))
-           (conj []))
-       (conj-to-last groups arg))))
+(defn user-agent []
+  (format "Leiningen/%s (Java %s; %s %s; %s)"
+          (leiningen-version) (System/getProperty "java.vm.name")
+          (System/getProperty "os.name") (System/getProperty "os.version")
+          (System/getProperty "os.arch")))
+
+(defn- http-settings []
+  "Set Java system properties controlling HTTP request behavior."
+  (System/setProperty "aether.connector.userAgent" (user-agent))
+  (when-let [{:keys [host port]} (classpath/get-proxy-settings)]
+    (System/setProperty "http.proxyHost" host)
+    (System/setProperty "http.proxyPort" (str port))))
 
 (defn -main
   "Run a task or comma-separated list of tasks."
-  [& args]
+  [& raw-args]
   (user/init)
-  (let [project (if (.exists (io/file "project.clj")) (project/read))]
+  (let [project (if (.exists (io/file "project.clj"))
+                  (project/init-project (project/read)))
+        [task-name args] (task-args raw-args project)]
     (when (:min-lein-version project)
       (verify-min-version project))
-    (when-let [{:keys [host port]} (classpath/get-proxy-settings)]
-      (System/setProperty "http.proxyHost" host)
-      (System/setProperty "http.proxyPort" (str port)))
+    (http-settings)
     (when-not project
-      (project/load-plugins (project/merge-profiles {} [:user :default])))
-    (doseq [[task-name & args] (group-args args)
-            :let [task-name (or (@aliases task-name)
-                                (get (:aliases project) task-name)
-                                task-name "help")]]
-      (try (apply-task task-name project args)
-           (catch Exception e
-             (when-let [[_ code] (and (.getMessage e)
-                                      (re-find #"Process exited with (\d+)"
-                                               (.getMessage e)))]
-               (exit (Integer. code)))
-             (when-not (re-find #"Suppressed exit:" (.getMessage e))
-               (.printStackTrace e))
-             (exit 1)))))
+      (let [default-project (project/merge-profiles project/defaults [:user :default])]
+        (project/load-certificates default-project)
+        (project/load-plugins default-project)))
+    (try (warn-chaining task-name args)
+         (apply-task task-name project args)
+         (catch Exception e
+           (when-let [[_ code] (and (.getMessage e)
+                                    (re-find #"Process exited with (\d+)"
+                                             (.getMessage e)))]
+             (exit (Integer. code)))
+           (when-not (re-find #"Suppressed exit:" (or (.getMessage e) ""))
+             (.printStackTrace e))
+           (exit 1))))
   (exit 0))

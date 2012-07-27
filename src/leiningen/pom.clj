@@ -94,6 +94,22 @@
 (defmulti ^:private xml-tags
   (fn [tag value] (keyword "leiningen.pom" (name tag))))
 
+(defn- guess-scm [project]
+  "Returns the name of the SCM used in project.clj or \"auto\" if nonexistant.
+  Example: :scm {:name \"git\" :tag \"deadbeef\"}"
+  (or (-> project :scm :name) "auto"))
+
+(defn- xmlify [scm]
+  "Converts the map identified by :scm"
+  (map #(xml-tags (first %) (second %)) scm))
+
+(defn- write-scm-tag [scm project]
+  "Write the <scm> tag for pom.xml.
+  Retains backwards compatibility without an :scm map."
+  (if
+    (= "auto" scm)
+    (make-git-scm (io/file (:root project) ".git"))
+    (xml-tags :scm (xmlify (:scm project)))))
 (defmethod xml-tags :default
   ([tag value]
      (when value
@@ -119,7 +135,8 @@
                 [exclusion-spec]
                 exclusion-spec)]
           [:exclusion (map (partial apply xml-tags)
-                           {:group-id (namespace dep)
+                           {:group-id (or (namespace dep)
+                                          (name dep))
                             :artifact-id (name dep)
                             :classifier classifier
                             :type extension})]))
@@ -254,7 +271,7 @@
 (defmethod xml-tags ::project
   ([_ project]
      (let [{:keys [without-profiles included-profiles]} (meta project)
-           test-project (-> without-profiles
+           test-project (-> (or without-profiles project)
                             (project/merge-profiles
                              (concat [:dev :test :default]
                                      included-profiles))
@@ -267,6 +284,7 @@
          (when (:parent project) (xml-tags :parent (:parent project)))
          [:groupId (:group project)]
          [:artifactId (:name project)]
+         [:packaging (:packaging project "jar")]
          [:version (:version project)]
          (when (:classifier project) [:classifier (:classifier project)])
          [:name (:name project)]
@@ -274,7 +292,7 @@
          (xml-tags :url (:url project))
          (xml-tags :license (:license project))
          (xml-tags :mailing-list (:mailing-list project))
-         (make-git-scm (io/file (:root project) ".git"))
+         (write-scm-tag (guess-scm project) project)
          (xml-tags :build [project test-project])
          (xml-tags :repositories (:repositories project))
          (xml-tags :dependencies
@@ -295,9 +313,8 @@
                 "LEIN_SNAPSHOTS_IN_RELEASE environment variable to override.")))
 
 (defn- remove-profiles [project profiles]
-  (let [{:keys [included-profiles
-                without-profiles]} (meta project)]
-    (project/merge-profiles without-profiles
+  (let [{:keys [included-profiles without-profiles]} (meta project)]
+    (project/merge-profiles (or without-profiles project)
                             (remove #(some #{%} profiles)
                                     included-profiles))))
 
@@ -327,7 +344,7 @@
   "Write a pom.xml file to disk for Maven interoperability."
   ([project pom-location]
      (let [pom (make-pom project true)
-           pom-file (io/file (:target-path project) pom-location)]
+           pom-file (io/file (:root project) pom-location)]
        (.mkdirs (.getParentFile pom-file))
        (with-open [pom-writer (io/writer pom-file)]
          (.write pom-writer pom))

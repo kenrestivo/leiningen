@@ -8,7 +8,7 @@
             [leiningen.core.project :as project]
             [leiningen.core.main :as main]
             [leiningen.core.classpath :as classpath])
-  (:import (java.io PushbackReader)))
+  (:import (org.sonatype.aether.resolution DependencyResolutionException)))
 
 ;; # OS detection
 
@@ -40,27 +40,30 @@
           "NUL"
           "/dev/null")))
 
+(defn prep-tasks
+  "Execute all the prep-tasks. A task can either be a string, or a
+  vector if it takes arguments. see :prep-tasks in sample.project.clj
+  for examples"
+  [{:keys [prep-tasks] :as project}]
+  (doseq [task prep-tasks]
+    (let [[task-name & task-args] (if (vector? task) task [task])
+          task-name (main/lookup-alias task-name project)]
+      (main/apply-task task-name (dissoc project :prep-tasks) task-args))))
+
 ;; # Form Wrangling
-
-(def ^:private hooke-injection
-  (with-open [rdr (-> "robert/hooke.clj" io/resource io/reader PushbackReader.)]
-    `(do (ns ~'leiningen.core.injected)
-         ~@(doall (take 6 (rest (repeatedly #(read rdr)))))
-         (ns ~'user))))
-
-(defn- injected-forms
-  "Return the forms that need to be injected into the project for
-  certain features (e.g. test selectors) to work."
-  [project]
-  (if-not (:disable-injection project)
-    (conj (:injections project) hooke-injection)))
 
 (defn prep [project]
   ;; This must exist before the project is launched.
   (.mkdirs (io/file (:compile-path project "/tmp")))
-  (classpath/get-classpath project)
-  (doseq [task (:prep-tasks project)]
-    (main/apply-task task (dissoc project :prep-tasks) []))
+  (try (classpath/get-classpath project)
+       (catch DependencyResolutionException e
+         (main/info (.getMessage e))
+         (main/info "Check :dependencies and :repositories for typos.")
+         (main/info "It's possible the specified jar is not in any repository.")
+         (main/info "If so, see \"Free-floating Jars\" under http://j.mp/repeatability")
+         (main/abort)))
+  (prep-tasks project)
+  (.mkdirs (io/file (:compile-path project "/tmp")))
   (when-let [prepped (:prepped (meta project))]
     (deliver prepped true)))
 
@@ -80,19 +83,33 @@
 (defn- d-property [[k v]]
   (format "-D%s=%s" (as-str k) v))
 
+;; TODO: this would still screw up with something like this:
+;; export JAVA_OPTS="-Dmain.greeting=\"hello -main\" -Xmx512m"
+(defn- join-broken-arg [args x]
+  (if (= \- (first x))
+    (conj args x)
+    (conj (vec (butlast args))
+          (str (last args) " " x))))
+
+(defn ^{:internal true} get-jvm-opts-from-env [env-opts]
+  (when (seq env-opts)
+    (reduce join-broken-arg [] (.split env-opts " "))))
+
 (defn- get-jvm-args
   "Calculate command-line arguments for launching java subprocess."
   [project]
   (let [native-arch-path (native-arch-path project)]
-    `(~@(let [opts (System/getenv "JVM_OPTS")]
-          (when (seq opts) [opts]))
+    `(~@(get-jvm-opts-from-env (System/getenv "JVM_OPTS"))
       ~@(:jvm-opts project)
       ~@(map d-property {:clojure.compile.path (:compile-path project)
                          (str (:name project) ".version") (:version project)
                          :clojure.debug (boolean (or (System/getenv "DEBUG")
                                                      (:debug project)))})
       ~@(when (and native-arch-path (.exists native-arch-path))
-          [(d-property [:java.library.path native-arch-path])]))))
+          [(d-property [:java.library.path native-arch-path])])
+      ~@(when-let [{:keys [host port]} (classpath/get-proxy-settings)]
+          [(d-property [:http.proxyHost host])
+           (d-property [:http.proxyPort port])]))))
 
 (defn- pump [reader out]
   (let [buffer (make-array Character/TYPE 1000)]
@@ -105,16 +122,19 @@
 
 (def ^:dynamic *dir* (System/getProperty "user.dir"))
 
+(def ^:dynamic *env* nil)
+
 (defn sh
   "A version of clojure.java.shell/sh that streams out/err."
   [& cmd]
-  (let [proc (.exec (Runtime/getRuntime) (into-array cmd) nil (io/file *dir*))]
+  (let [env (and *env* (into-array String (map name (apply concat *env*))))
+        proc (.exec (Runtime/getRuntime) (into-array cmd) env (io/file *dir*))]
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. (fn [] (.destroy proc))))
     (with-open [out (io/reader (.getInputStream proc))
                 err (io/reader (.getErrorStream proc))]
-      (let [pump-out (doto (Thread. #(pump out *out*)) .start)
-            pump-err (doto (Thread. #(pump err *err*)) .start)]
+      (let [pump-out (doto (Thread. (bound-fn [] (pump out *out*))) .start)
+            pump-err (doto (Thread. (bound-fn [] (pump err *err*))) .start)]
         (.join pump-out)
         (.join pump-err))
       (.waitFor proc))))
@@ -128,10 +148,17 @@
     (pr-str (pr-str form))
     (pr-str form)))
 
+(defn- classpath-arg [project]
+  (if (:bootclasspath project)
+    [(apply str "-Xbootclasspath/a:"
+            (interpose java.io.File/pathSeparatorChar
+                       (classpath/get-classpath project)))]
+    ["-cp" (string/join java.io.File/pathSeparatorChar
+                        (classpath/get-classpath project))]))
+
 (defn shell-command [project form]
   `(~(or (:java-cmd project) (System/getenv "JAVA_CMD") "java")
-    "-cp" ~(string/join java.io.File/pathSeparatorChar
-                        (classpath/get-classpath project))
+    ~@(classpath-arg project)
     ~@(get-jvm-args project)
     "clojure.main" "-e" ~(form-string form)))
 
@@ -143,25 +170,19 @@
   (binding [*dir* (:root project)]
     (let [exit-code (apply sh (shell-command project form))]
       (when (pos? exit-code)
-        (throw (Exception. (str "Process exited with " exit-code)))))))
+        (throw (ex-info "Subprocess failed" {:exit-code exit-code}))))))
 
 (defmethod eval-in :trampoline [project form]
-  (deliver (:trampoline-promise (meta project))
-           (shell-command project form)))
+  (swap! (:trampoline-forms (meta project)) conj form))
 
 (defmethod eval-in :classloader [project form]
   (let [classpath   (map io/file (classpath/get-classpath project))
         classloader (cl/classlojure classpath)]
-    ;; TODO: special-case :java.library.path
     (doseq [opt (get-jvm-args project)
             :when (.startsWith opt "-D")
             :let [[_ k v] (re-find #"^-D(.*?)=(.*)$" opt)]]
       (System/setProperty k v))
-    (try (cl/eval-in classloader form)
-         0 ;; pretend to return an exit code for now
-         (catch Exception e
-           (.printStackTrace e)
-           1))))
+    (cl/eval-in classloader form)))
 
 (defmethod eval-in :leiningen [project form]
   (when (:debug project)
@@ -174,12 +195,7 @@
             :when (.startsWith opt "-D")
             :let [[_ k v] (re-find #"^-D(.*?)=(.*)$" opt)]]
       (System/setProperty k v))
-  ;; need to at least pretend to return an exit code
-  (try (eval form)
-       0
-       (catch Exception e
-         (.printStackTrace e)
-         1)))
+  (eval form))
 
 (defn eval-in-project
   "Executes form in an isolated classloader with the classpath and compile path
@@ -189,7 +205,7 @@
      (prep project)
      (eval-in project
               `(do ~init
-                   ~@(injected-forms project)
+                   ~@(:injections project)
                    (set! ~'*warn-on-reflection*
                          ~(:warn-on-reflection project))
                    ~form)))

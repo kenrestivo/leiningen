@@ -17,22 +17,34 @@ lein-myplugin`, and edit the `myplugin` defn in the
 `leiningen.myplugin` namespace. You'll notice the `project.clj` file
 has `:eval-in-leiningen true`, which causes all tasks to operate
 inside the leiningen process rather than starting a subprocess to
-isolate the project's code. Plugins should not declare a dependency on
+isolate the project's code. Plugins need not declare a dependency on
 Clojure itself; in fact
 [all of Leiningen's own dependencies](https://github.com/technomancy/leiningen/blob/master/project.clj)
-should be considered implied dependencies of every plugin.
+will be available. However, it doesn't hurt to be specific since
+Leiningen's other dependencies may change in future versions.
 
 See the `lein-pprint` directory
 [in the Leiningen source](https://github.com/technomancy/leiningen/tree/master/lein-pprint)
 for a sample of a very simple plugin.
 
+During plugin development, having to re-run `lein install` in your
+plugin project and then switch to a test project can be very
+cumbersome. You can avoid this annoyance by creating a
+`.lein-classpath` file in your test project containing the path to the
+`src` directory of your plugin.
+
+### Project Argument
+
 The first argument to your task function should be the current
 project. It will be a map which is based on the `project.clj` file,
 but it also has `:name`, `:group`, `:version`, and `:root` keys added
 in, among other things. To see what project maps look like, try using
-the `lein-pprint` plugin; then you can run `lein pprint` to examine
-any project. If you want it to take parameters from the command-line
-invocation, you can make the function take more arguments.
+the `lein-pprint` plugin; you can invoke the `pprint` task to examine
+any project. If you want your task to take parameters from the
+command-line invocation, you can make the function take more than one
+argument.
+
+TODO: mention accepting :keyword-like args for certain things
 
 Most tasks may only be run in the context of another project. If your
 task can be run outside a project directory, add `^:no-project-needed`
@@ -40,11 +52,11 @@ metadata to your task defn to indicate so. Your task should still
 accept a project as its first argument, but it will be allowed to be
 nil if it's run outside a project directory. If you are inside a
 project, Leiningen should change to the root of that project before
-launching the JVM, so `(System/getProperty "user.dir")` should be the
-project root. The current directory of the JVM cannot be changed once
-launched.
+launching the JVM, but some other tools using the `leiningen-core`
+library may not behave the same way, so for greatest portability check
+the `:root` key of the project map and work from there.
 
-TODO: mention accepting :keyword-like args for certain things
+### Documentation
 
 The `lein help` task uses docstrings. A namespace-level docstring will
 be used as the short summary if present; if not then it will take the
@@ -94,6 +106,8 @@ need. For example, this is done in the `lein-swank` plugin like so:
                       (swank-form project port host opts))))
 ```
 
+TODO: switch to profiles for this
+
 The code in the `swank-clojure` dependency is needed inside the
 project, so it's `conj`ed into the `:dependencies`.
 
@@ -139,23 +153,18 @@ that call `add-hook`. You may place calls to `add-hook` at the
 top-level of the namespace, but if an `activate` defn is present it
 will be called; this is the best place to put `add-hook` invocations.
 
-If you need to use hooks from code that runs inside the project's
-process, you may use `leiningen.core.injected/add-hook`, which is an
-isolated copy of `robert.hooke/add-hook` injected into the project in
-order to support features like test selectors.
-
 See [the documentation for
 Hooke](https://github.com/technomancy/robert-hooke/blob/master/README.md)
 for more details.
 
 ## Clojure Version
 
-Leiningen 2.0.0 uses Clojure 1.3.0. If you need to use a different
+Leiningen 2.0.0 uses Clojure 1.4.0. If you need to use a different
 version of Clojure from within a Leiningen plugin, you can use
 `eval-in-project` with a dummy project argument:
 
 ```clj
-(eval-in-project {:dependencies '[[org.clojure/clojure "1.4.0-beta1"]]}
+(eval-in-project {:dependencies '[[org.clojure/clojure "1.5.0-alpha"]]}
                  '(println "hello from" *clojure-version*))
 ```
 
@@ -228,6 +237,10 @@ Of course if the function has changed arities or has disappeared
 entirely this may not be feasible, but it should suffice in most
 cases.
 
+Note that a version of `eval-in-project` that supports both Leiningen 1.x and
+2.x is available from [leinjacker](https://github.com/sattvik/leinjacker), a
+library with utilities for plugin writer.
+
 Another key change is that `:source-path`, `:resources-path`,
 `:java-source-path`, and `:test-path` have changed to
 `:sources-paths`, `:resource-paths`, `:java-source-paths`, and
@@ -252,10 +265,24 @@ work with `lein new`. See
 [the documentation for the new task](https://github.com/Raynes/lein-newnew/)
 for details on how to build templates.
 
+## Utility library for plugin creators
+
+Plugin creators often have to do the same sorts of things, such as manage
+dependencies and provide support for multiple versions of Leiningen.  To help
+you avoid duplication of code, use
+[leinjacker](https://github.com/sattvik/leinjacker), a library that contains a
+number of utilities, including:
+
+1. A version of `eval-in-project` that works with Leiningen 1.x and Leiningen 2.
+2. Utilities for querying and manipulating project dependencies.
+
+If you have functionality that you think may be useful to add to leinjacker,
+feel free to fork the project and submit a pull request.
+
 ## Have Fun
 
-Please add your plugins to [the list on the
-wiki](http://wiki.github.com/technomancy/leiningen/plugins).
+Please add your plugin to [the list on the
+wiki](http://wiki.github.com/technomancy/leiningen/plugins) once it's ready.
 
 Hopefully the plugin mechanism is simple and flexible enough to let
 you bend Leiningen to your will.

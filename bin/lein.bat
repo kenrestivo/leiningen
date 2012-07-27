@@ -1,6 +1,6 @@
 @echo off
 
-set LEIN_VERSION=2.0.0-preview3
+set LEIN_VERSION=2.0.0-SNAPSHOT
 
 setLocal EnableExtensions EnableDelayedExpansion
 
@@ -24,34 +24,38 @@ if "x%LEIN_HOME%" == "x" (
     set LEIN_HOME=%USERPROFILE%\.lein
 )
 
-if "x%LEIN_JAR%" == "x" set LEIN_JAR="!LEIN_HOME!\self-installs\leiningen-!LEIN_VERSION!-standalone.jar"
+if "x%LEIN_JAR%" == "x" set LEIN_JAR=!LEIN_HOME!\self-installs\leiningen-!LEIN_VERSION!-standalone.jar
 
 if "%1" == "self-install" goto SELF_INSTALL
 if "%1" == "upgrade"      goto NO_UPGRADE
 
-:: Apply context specific CLASSPATH entries
-set CONTEXT_CP=
-if exist ".lein-classpath" set /P CONTEXT_CP=<.lein-classpath
-if NOT "%CONTEXT_CP%"=="" set CLASSPATH="%CONTEXT_CP%";%CLASSPATH%
-
-if exist "%~f0\..\..\src\leiningen\core.clj" (
+if exist "%~dp0..\src\leiningen\version.clj" (
     :: Running from source checkout.
-    call :SET_LEIN_ROOT "%~f0\..\.."
+    call :SET_LEIN_ROOT "%~dp0.."
 
-    set LEIN_LIBS="
-    for %%j in ("!LEIN_ROOT!\lib\*") do set LEIN_LIBS=!LEIN_LIBS!;%%~fj
-    set LEIN_LIBS=!LEIN_LIBS!"
+    set LEIN_LIBS=
+    for %%j in ("!LEIN_ROOT!\leiningen-core\lib\*") do set LEIN_LIBS=!LEIN_LIBS!%%~fj;
+    set LEIN_LIBS=!LEIN_LIBS!
 
-    if "x!LEIN_LIBS!" == "x" if not exist %LEIN_JAR% goto NO_DEPENDENCIES
+    if "x!LEIN_LIBS!" == "x" goto NO_DEPENDENCIES
 
-    set CLASSPATH=%CLASSPATH%;!LEIN_LIBS!;"!LEIN_ROOT!\src";"!LEIN_ROOT!\resources";%LEIN_JAR%
+    set CLASSPATH=!LEIN_LIBS!!LEIN_ROOT!\leiningen-core\src;!LEIN_ROOT!\leiningen-core\resources;!LEIN_ROOT!\leiningen-core\test;!LEIN_ROOT!\src;!LEIN_ROOT!\resources
+
+    :: Apply context specific CLASSPATH entries
+    if exist "%~dp0..\.lein-classpath" (
+        set /P CONTEXT_CP=< "%~dp0..\.lein-classpath"
+
+        if NOT "x!CONTEXT_CP!"=="x" (
+            set CLASSPATH=!CONTEXT_CP!;!CLASSPATH!
+        )
+    )
 ) else (
     :: Not running from a checkout.
-    if not exist %LEIN_JAR% goto NO_LEIN_JAR
-    set CLASSPATH=%CLASSPATH%;%LEIN_JAR%
+    if not exist "%LEIN_JAR%" goto NO_LEIN_JAR
+    set CLASSPATH=%LEIN_JAR%
 )
 
-if not "x%DEBUG%" == "x" echo CLASSPATH=%CLASSPATH%
+if not "x%DEBUG%" == "x" echo CLASSPATH=!CLASSPATH!
 :: ##################################################
 
 
@@ -77,11 +81,12 @@ echo.
 goto EOF
 
 :SELF_INSTALL
-if exist %LEIN_JAR% (
+if exist "%LEIN_JAR%" (
     echo %LEIN_JAR% already exists. Delete and retry.
     goto EOF
 )
-for %%f in (%LEIN_JAR%) do set LEIN_INSTALL_DIR="%%~dpf"
+
+for %%f in ("%LEIN_JAR%") do set LEIN_INSTALL_DIR="%%~dpf"
 if not exist %LEIN_INSTALL_DIR% mkdir %LEIN_INSTALL_DIR%
 
 echo Downloading Leiningen now...
@@ -95,7 +100,7 @@ if ERRORLEVEL 9009 (
 )
 :: set LEIN_JAR_URL=https://github.com/downloads/technomancy/leiningen/leiningen-%LEIN_VERSION%-standalone.jar
 set LEIN_JAR_URL=https://cloud.github.com/downloads/technomancy/leiningen/leiningen-%LEIN_VERSION%-standalone.jar
-%HTTP_CLIENT% %LEIN_JAR% %LEIN_JAR_URL%
+%HTTP_CLIENT% "%LEIN_JAR%" %LEIN_JAR_URL%
 if ERRORLEVEL 1 (
     del %LEIN_JAR%>nul 2>&1
     goto DOWNLOAD_FAILED
@@ -176,7 +181,7 @@ set "TRAMPOLINE_FILE=%TEMP%\lein-trampoline-%RANDOM%.bat"
 %JAVA_CMD% -client %LEIN_JVM_OPTS% ^
  -Dleiningen.original.pwd="%ORIGINAL_PWD%" ^
  -Dleiningen.trampoline-file="%TRAMPOLINE_FILE%" ^
- -cp %CLASSPATH% clojure.main -e "(use 'leiningen.core.main)(-main \"%*\")"
+ -cp "%CLASSPATH%" clojure.main -e "(use 'leiningen.core.main)(apply -main (map str '(%*)))"
 
 if not exist "%TRAMPOLINE_FILE%" goto EOF
 call "%TRAMPOLINE_FILE%"
@@ -184,8 +189,8 @@ del "%TRAMPOLINE_FILE%"
 goto EOF
 
 :RUN_NORMAL
-%JAVA_CMD% -client %LEIN_JVM_OPTS% -Xbootclasspath/a:"%CLOJURE_JAR%" ^
+%JAVA_CMD% -client %LEIN_JVM_OPTS% ^
  -Dleiningen.original.pwd="%ORIGINAL_PWD%" ^
- -cp %CLASSPATH% clojure.main -m leiningen.core.main %*
+ -cp "%CLASSPATH%" clojure.main -m leiningen.core.main %*
 
 :EOF

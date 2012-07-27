@@ -6,14 +6,23 @@
             [leiningen.core.user :as user]
             [leiningen.core.project :as project]))
 
+(use-fixtures :once
+              (fn [f]
+                ;; Can't have user-level profiles interfering!
+                (with-redefs [user/profiles (constantly {})
+                              user/credentials (constantly nil)]
+                  (f))))
+
 (defn m2-file [f]
   (io/file (System/getProperty "user.home") ".m2" "repository" f))
 
 (def project {:dependencies '[[org.clojure/clojure "1.3.0"]
                               [ring/ring-core "1.0.0-RC1"
                                :exclusions [commons-codec]]]
+              :checkout-deps-shares [:source-paths :resource-paths :compile-path]
               :repositories (:repositories project/defaults)
               :root "/tmp/lein-sample-project"
+              :target-path "/tmp/lein-sample-project/target"
               :source-paths ["/tmp/lein-sample-project/src"]
               :resource-paths ["/tmp/lein-sample-project/resources"]
               :test-paths ["/tmp/lein-sample-project/test"]})
@@ -72,13 +81,20 @@
        (dorun (map #(.delete %) (reverse (file-seq d1))))))))
 
 (deftest test-add-auth
-  (with-redefs [user/profiles (constantly
-                               {:auth
-                                {:repository-auth
-                                 {"https://sekrit.info/repo"
-                                  {:username "milgrim" :password "reindur"}}}})]
-    (is (= [["sonatype" {:url "https://oss.sonatype.org/"}]
+  (with-redefs [user/credentials (constantly
+                                  {"https://sekrit.info/repo"
+                                   {:username "milgrim" :password "reindur"}})
+                user/profiles (constantly {:auth {:repository-auth
+                                                  {#"clojars"
+                                                   {:username "flynn"
+                                                    :password "flotilla"}}}})]
+    (is (= [["clojars" {:url "http://clojars.org/repo"
+                        :username "flynn" :password "flotilla"}]
+            ["sonatype" {:url "https://oss.sonatype.org/"}]
             ["internal" {:password "reindur" :username "milgrim"
-                         :url "https://sekrit.info/repo"}]]
-           (add-auth [["sonatype" {:url "https://oss.sonatype.org/"}]
-                      ["internal" {:url "https://sekrit.info/repo"}]])))))
+                         :url "https://sekrit.info/repo" :creds :gpg}]]
+           (map add-repo-auth
+                [["clojars" {:url "http://clojars.org/repo"}]
+                 ["sonatype" {:url "https://oss.sonatype.org/"}]
+                 ["internal" {:url "https://sekrit.info/repo"
+                              :creds :gpg}]])))))

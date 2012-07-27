@@ -3,15 +3,29 @@ Leiningen TODOs
 See also https://github.com/technomancy/leiningen/issues
 
 * For 2.0.0
-** Low-hanging fruit (newbies, try one of these!)
-   - [X] Look for :java-cmd in project map
-   - [X] Remove task-specific silent flags in favour of global bit (#473)
-   - [X] Port arbitrary upgrade functionality from 1.x branch
-   - [X] Move newnew template listing into subtasks (newnew #11)
-   - [X] Collapse all :repl-* settings into :repl-options map (#432)
-   - [ ] Document creation of new project templates
-   - [ ] Install task outside projects
-   - [ ] Suppress stack trace when getting help on non-existent task (#515)
+** 2.0.0-final
+   - [X] Allow trampoline to work with chaining in do task (#665)
+   - [ ] Improve speed of trampoline restarts (#573)
+   - [ ] Reduce Aether verbosity (#610)
+   - [ ] Isolate target dir per profile (#468)
+   - [ ] Honor mirror for search indices (#281)
+   - [ ] Drop clojars snapshots from default repos (#241)
+** 2.0.0-preview7
+   - [X] Address chaining issues in with-profile (#632)
+   - [X] Address gpg agent issues (#615)
+   - [X] Stale directory clutter (#589)
+   - [X] Fix de-dupe with :classifier/:extension (#645)
+   - [X] Check project for :scm (#640)
+   - [X] Mirror support (#271)
+   - [X] Only look up repo credentials when necessary (#657)
+   - [X] Allow jars to be signed, document in deploying guide. (#519)
+   - [X] Fix javac to abort on failure (#658)
+** preview4
+   - [X] Don't re-extract native deps (#535)
+   - [X] Make offline profile use dev profile (#514) (LHF)
+   - [X] Fix $JVM_OPTS (#565)
+   - [X] Move lein-newnew plugin into default profile (#540)
+   - [X] Force checking of snapshots (#518) (LHF)
 ** Intermediate
    - [X] Pretty-print pom
    - [X] deps :tree
@@ -19,24 +33,6 @@ See also https://github.com/technomancy/leiningen/issues
    - [X] Show aliases in lein help (#407)
    - [X] Use pomegranate to dynamically resolve missing "lein new" templates
          (newnew #12)
-   - [ ] Mirror support (#271)
-   - [ ] Honor mirror for search indices (#281)
-   - [ ] Re-enable transitive cleaning for compile (#516)
-** Complex
-   - [ ] Post-install scripts? (#517)
-   - [ ] Force checking of snapshots (#518)
-   - [ ] Allow jars to be signed. (#519)
-   - [ ] Calculate web of trust for signed dependencies.
-   - [ ] Prevent multiple versions of artifacts from getting added (#420)
-   - [ ] Auto-clean predicates (profile switching, etc) (#468)
-   - [ ] Honor hooks declared in plugin jar metadata? (#401)
-   - [ ] Task-level profiles (nrepl dep comes from repl profile, etc) (#520)
-         Better visibility than either :default profile or associng straight in
-   - [ ] Investigate issues with :eval-in :classloader and bootclasspath
-         Need to ensure we're able to put Clojure on the bootstrap classpath
-   - [ ] Address chaining issues in with-profile
-   - [ ] Non-transitive AOT
-   - [ ] Drop clojars snapshots from default repos (#241)
 ** Documentation
    - [X] readme
    - [X] plugin guide
@@ -44,8 +40,7 @@ See also https://github.com/technomancy/leiningen/issues
    - [X] hacking guide (moved to leiningen-core readme)
    - [X] migration guide
    - [X] sample project.clj
-   - [ ] deploy guide
-   - [ ] document adding javadoc/java source as deps
+   - [X] deploy guide
 ** Changes for preview release
    - [X] Finish designing and implement profiles
    - [X] Dynamic recalculating of classpath via pomegranate

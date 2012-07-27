@@ -1,5 +1,62 @@
 # Leiningen News -- history of user-visible changes
 
+## 2.0.0-preview7 / 2012-06-27
+
+* Fix a bug where failed javac wouldn't abort. (Michael Klishin)
+* Check task aliases everywhere tasks are invoked.
+* Sign jars and poms of releases upon deploy by default.
+* Don't decrypt `credentials.clj.gpg` for every request.
+* Support setting `:mirrors` in project.clj. (Chas Emerick, Nelson Morris)
+* Allow aliases shadowing task names to invoke shadowed tasks.
+* Emit `doc/intro.md` in new project templates.
+* Allow `:scm` to be set in project.clj for pom inclusion. (Florian Anderiasch)
+* Fix a bug where dependency `:classifier` and `:extension` would be ignored.
+* Speed up subprocess launches when `:bootclasspath` is set.
+* Set user agent for HTTP requests. (Bruce Adams)
+* Verify signatures of dependencies with `lein deps :verify`.
+* Move task chaining to `do` task in order to allow for higher-order use.
+
+## 2.0.0-preview6 / 2012-06-01
+
+* Allow lookup of :repositories credentials from environment variables.
+* Perform more SSL certificate validity checks.
+* Fix a bug where repl dependency was conflicting.
+* Add certificate for Clojars to default project settings.
+* Allow custom SSL :certificates to be specified for repositories.
+
+## 2.0.0-preview5 / 2012-05-31
+
+* Fix a repl bug where namespaced keywords weren't read right. (Colin Jones)
+* Prompt for credentials upon deploy when none are configured.
+* Support encrypted deploy credentials using GPG.
+* Warn about missing metadata when deploying.
+* Default to refusing downloaded jars when checksums don't match.
+* Apply middleware before calculating profiles so they work in with-profile.
+* Allow reply dependency to be upgraded independently of Leiningen.
+* Don't write "stale" directory when running outside a project.
+* Proxy settings are passed on to project subprocesses. (Craig McDaniel)
+* Revamp tutorial, spin off profiles guide and faq.
+* Fix bug that would cause repl task to hang. (Colin Jones)
+
+## 2.0.0-preview4 / 2012-05-11
+
+* Checkout dependencies are not applied with production profile.
+* Move pom.xml back to the project root.
+* Add -U alias for forcing updates of snapshots.
+* Support setting :update and :checksum profiles at top level of project.
+* Blink matching parens in repl. (Colin Jones)
+* Fix a bug where repl would interfere with project agents. (Chas Emerick)
+* Show repl output that is emitted after return value. (Colin Jones)
+* Make it easier for plugins to undo profile merging. (David Santiago)
+* Add -o alias for activating offline profile.
+* Ignore $CLASSPATH environment variable.
+* Fix bug where repl task couldn't be trampolined. (Colin Jones)
+* Allow jar manifest entries to be dynamically calculated.
+* Support map-style :javac-opts like Leiningen 1.x used. (Michael Klishin)
+* Allow group-id to be specified when creating new projects. (Michael Klishin)
+* Fix a bug where :dev dependencies would be exposed in pom.
+* Use Clojure 1.4.0 internally; plugins have access to new Clojure features.
+
 ## 2.0.0-preview3 / 2012-04-12
 
 * Add HTTP nREPL support for repl task via :connect option. (Chas Emerick,
@@ -32,6 +89,7 @@
 ## 2.0.0-preview1 / 2012-03-07
 
 * Split out leiningen-core into independent library.
+* Construct classpath out of ~/.m2 instead of copying jars to lib/.
 * Replace maven-ant-tasks with Pomegranate library. (Chas Emerick,
   Nelson Morris)
 * Move build artifacts to target/ directory.

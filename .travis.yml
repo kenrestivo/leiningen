@@ -1,5 +1,5 @@
 language: clojure
-install: cd leiningen-core; lein test, install; cd ..
+install: cd leiningen-core; lein install; cd ..
 script: bin/lein test
 branches:
   only:
@@ -7,3 +7,8 @@ branches:
     - master
 notifications:
   irc: "irc.freenode.org#leiningen"
+jdk:
+  - openjdk6
+  - openjdk7
+  # currently needs some work to pass. MK.
+  # - oraclejdk7

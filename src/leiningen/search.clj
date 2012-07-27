@@ -5,7 +5,7 @@
             [leiningen.core.project :as project]
             [leiningen.core.main :as main]
             [clucy.core :as clucy]
-            [clj-http.client :as client])
+            [clj-http.client :as http])
   (:import (java.util.zip ZipFile)
            (java.net URL)
            (java.io File InputStream OutputStream FileOutputStream)))
@@ -28,7 +28,8 @@
   (URL. (format "%s/.index/nexus-maven-repository-index.zip" url)))
 
 (defn- download [^URL url ^OutputStream out-stream  & {:keys [callback]}]
-  (let [resp (client/get (str url) {:as :stream})
+  (let [resp (http/get (str url) {:as :stream
+                                  :headers {"User-Agent" (main/user-agent)}})
         content-len (try (Long/valueOf
                           (get-in resp [:headers "content-length"]))
                          (catch Exception _))
@@ -47,7 +48,10 @@
             (recur cnt*)))))))
 
 (defn- download-index [[id {url :url}]]
-  (main/info "Downloading index from" id "-" url "... this may take a while.")
+  (main/info "Downloading index from" id "-" url)
+  (main/info "This can take a very, very long time. While you wait you might")
+  (main/info "be interested in searching via the web interfaces at")
+  (main/info "http://search.maven.org or http://clojars.org.")
   (main/info "0%...")
   (flush)
   (let [index-url ^URL (remote-index-url url)
@@ -110,24 +114,16 @@
 (defn ^:no-project-needed search
   "Search remote maven repositories for matching jars.
 
-The first run will download a set of indices, which will take a while.
-Pass in --update as the query to force a fresh download of all
-indices.
+The first run will download a set of indices, which will take a very long time.
 
-The query is evaluated as a lucene search. You can search for simple
-string matches or do more advanced queries such as this
-'lein search \"clojure AND http AND NOT g:org.clojars*\"'
+The query is evaluated as a lucene search. You can search for simple string
+matches or do more advanced queries such as this:
 
-Also accepts a second parameter for fetching successive
-pages."
+  $ lein search \"clojure AND http AND NOT g:org.clojars*\"
+
+Also accepts a second parameter for fetching successive pages."
   ([project query] (search project query 1))
   ([project query page]
-     (let [repos (:repositories project (:repositories project/defaults))]
-       (if (= "--update" query)
-         (doseq [[_ {url :url} :as repo] repos]
-           (doseq [f (reverse (rest (file-seq (index-location url))))]
-             (.delete f)) ; no delete-file-recursively; bleh
-           (ensure-fresh-index repo))
-         (doseq [repo repos
-                 :let [page (Integer. page)]]
-           (print-results repo (search-repository repo query page) page))))))
+     (doseq [repo (:repositories project (:repositories project/defaults))
+             :let [page (Integer. page)]]
+       (print-results repo (search-repository repo query page) page))))

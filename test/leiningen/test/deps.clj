@@ -21,7 +21,7 @@
     (doseq [[n v] sample-deps]
       (delete-file-recursively (m2-dir n v) :silently))
     (let [out (with-out-str (deps sample-project ":tree"))]
-      (doseq [[name version] '[[org.clojure/clojure "1.1.0"]
+      (doseq [[name version] '[[org.clojure/clojure "1.3.0"]
                                [ring "1.0.0"]
                                [ring/ring-core "1.0.0"]
                                [commons-codec "1.4"]
@@ -41,7 +41,7 @@
                                [ring/ring-servlet "1.0.0"]
                                [rome "0.9"]
                                [jdom "1.0"]]]
-        (is (.contains out (format "[%s %s]" name version)))))))
+        (is (.contains out (format "[%s \"%s\"]" name version)))))))
 
 (deftest ^:online test-snapshots-releases
   (let [pr (assoc sample-project :omit-default-repositories true
@@ -105,7 +105,7 @@
              :x86_64 #{"liblwjgl64.so" "libopenal.so"}}})
 
 (deftest test-native-deps
-  (delete-file-recursively (:native-path native-project) true)
+  (delete-file-recursively (:target-path native-project) true)
   (deps native-project)
   (is (= (conj (get-in native-lib-files-map [(eval/get-os) (eval/get-arch)])
                ".gitkeep")
